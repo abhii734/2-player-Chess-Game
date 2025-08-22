@@ -9,10 +9,11 @@ Focuses on simplicity, correctness, and clean move validation.
 - Legal move generation for all pieces
 - Move highlighting on selection
 - Undo (`Z`) and reset (`R`)
-- Local 2-player support on one machine
+- Local 2-player on one machine
 - Lightweight and easy to run 
 
 ---
+Hope You Enjoy')
 
 ## 📦 Installation
 
