@@ -10,7 +10,7 @@ Focuses on simplicity, correctness, and clean move validation.
 - Move highlighting on selection
 - Undo (`Z`) and reset (`R`)
 - Local 2-player support on one machine
-- Lightweight and easy to run
+- Lightweight and easy to run 
 
 ---
 
