@@ -21,11 +21,23 @@ class GameState():
         self.moveLog = []
         # Castling rights: [wK, wQ, bK, bQ] - King-side and Queen-side for both colors
         self.castlingRights = [True, True, True, True]
+        # En passant tracking: (row, col) of the square where en passant capture is possible, or None
+        self.enPassantSquare = None
+        # Game state history for proper undo functionality
+        self.gameStateHistory = []  # Stores (castlingRights, enPassantSquare, gameEnded, winner) for each move
         # Game end tracking
         self.gameEnded = False
         self.winner = None  # "White" or "Black"
 
     def makeMove(self, move):
+        # Save current game state for undo
+        self.gameStateHistory.append((
+            self.castlingRights.copy(),
+            self.enPassantSquare,
+            self.gameEnded,
+            self.winner
+        ))
+
         # Handle castling FIRST (before moving the king)
         if move.isCastleMove:
             if move.endCol - move.startCol == 2:  # King-side castle
@@ -44,21 +56,43 @@ class GameState():
                 rookPiece = self.board[rookRow][rookStartCol]  # Store rook piece
                 self.board[rookRow][rookEndCol] = rookPiece
                 self.board[rookRow][rookStartCol] = "--"
-        
+
+        # Handle en passant capture BEFORE moving the pawn
+        if move.isEnPassantMove:
+            # Remove the captured pawn (which is on the same row as the moving pawn, but different column)
+            capturedPawnRow = move.startRow  # Same row as the attacking pawn
+            capturedPawnCol = move.endCol    # Same column as the destination (where the captured pawn is)
+            self.board[capturedPawnRow][capturedPawnCol] = "--"
+
         # Check for king capture before making the move
         if move.pieceCaptured[1] == "K":  # King is being captured
             self.gameEnded = True
             # The player making the move wins
             self.winner = "White" if self.whiteToMove else "Black"
 
-        # Now move the king (or any other piece)
+        # Now move the piece
         self.board[move.startRow][move.startCol] = "--"
         self.board[move.endRow][move.endCol] = move.pieceMoved
         self.moveLog.append(move) #to undo moves later on
         self.whiteToMove = not self.whiteToMove #swap btw players
 
+        # Update en passant square
+        self.updateEnPassantSquare(move)
+
         # Update castling rights
         self.updateCastlingRights(move)
+
+    def updateEnPassantSquare(self, move):
+        """Update the en passant square based on the move made"""
+        # Reset en passant square
+        self.enPassantSquare = None
+
+        # Check if a pawn moved two squares forward
+        if move.pieceMoved[1] == "p" and abs(move.endRow - move.startRow) == 2:
+            # Set en passant square to the square the pawn passed over
+            enPassantRow = (move.startRow + move.endRow) // 2
+            enPassantCol = move.endCol  # Fixed: should be endCol, not startCol
+            self.enPassantSquare = (enPassantRow, enPassantCol)
 
     def updateCastlingRights(self, move):
         # If king moves, lose all castling rights for that color
@@ -97,19 +131,31 @@ class GameState():
                     self.castlingRights[3] = False  # bQ
         
     def undoMove(self):
-        if len(self.moveLog) != 0:
+        if len(self.moveLog) != 0 and len(self.gameStateHistory) != 0:
             move = self.moveLog.pop()
 
-            # If undoing a move that ended the game, reset game state
-            if move.pieceCaptured[1] == "K":
-                self.gameEnded = False
-                self.winner = None
+            # Restore the previous game state
+            prevCastlingRights, prevEnPassantSquare, prevGameEnded, prevWinner = self.gameStateHistory.pop()
+            self.castlingRights = prevCastlingRights
+            self.enPassantSquare = prevEnPassantSquare
+            self.gameEnded = prevGameEnded
+            self.winner = prevWinner
 
-            # First restore the king (or any other piece)
+            # First restore the moving piece
             self.board[move.startRow][move.startCol] = move.pieceMoved
             self.board[move.endRow][move.endCol] = move.pieceCaptured
             self.whiteToMove = not self.whiteToMove
-            
+
+            # Handle en passant undo (restore the captured pawn)
+            if move.isEnPassantMove:
+                # For en passant, the captured pawn was on the same row as the moving pawn
+                # but in the column where the moving pawn ended up
+                capturedPawnRow = move.startRow  # Same row as the attacking pawn
+                capturedPawnCol = move.endCol    # Same column as destination
+                self.board[capturedPawnRow][capturedPawnCol] = move.pieceCaptured
+                # The destination square should be empty after undo (no piece was originally there)
+                self.board[move.endRow][move.endCol] = "--"
+
             # Handle castling undo (after restoring the king)
             if move.isCastleMove:
                 if move.endCol - move.startCol == 2:  # King-side castle
@@ -128,50 +174,8 @@ class GameState():
                     rookPiece = self.board[rookRow][rookEndCol]  # Store rook piece
                     self.board[rookRow][rookStartCol] = rookPiece
                     self.board[rookRow][rookEndCol] = "--"
-            
-            # Restore castling rights
-            self.restoreCastlingRights(move)
 
-    def restoreCastlingRights(self, move):
-        """Restore castling rights when undoing a move"""
-        # If king was moved back, restore castling rights for that color
-        if move.pieceMoved[1] == "K":
-            if move.pieceMoved[0] == "w":
-                # Check if king is back in original position
-                if move.startRow == 7 and move.startCol == 4:
-                    self.castlingRights[0] = True  # wK
-                    self.castlingRights[1] = True  # wQ
-            else:
-                # Check if king is back in original position
-                if move.startRow == 0 and move.startCol == 4:
-                    self.castlingRights[2] = True  # bK
-                    self.castlingRights[3] = True  # bQ
-        
-        # If rook was moved back, restore castling rights for that side
-        elif move.pieceMoved[1] == "R":
-            if move.pieceMoved[0] == "w":
-                if move.startCol == 7:  # King-side rook back in position
-                    self.castlingRights[0] = True  # wK
-                elif move.startCol == 0:  # Queen-side rook back in position
-                    self.castlingRights[1] = True  # wQ
-            else:
-                if move.startCol == 7:  # King-side rook back in position
-                    self.castlingRights[2] = True  # bK
-                elif move.startCol == 0:  # Queen-side rook back in position
-                    self.castlingRights[3] = True  # bQ
-        
-        # If rook was captured and restored, restore castling rights for that side
-        if move.pieceCaptured[1] == "R":
-            if move.pieceCaptured[0] == "w":
-                if move.endCol == 7:  # King-side rook restored
-                    self.castlingRights[0] = True  # wK
-                elif move.endCol == 0:  # Queen-side rook restored
-                    self.castlingRights[1] = True  # wQ
-            else:
-                if move.endCol == 7:  # King-side rook restored
-                    self.castlingRights[2] = True  # bK
-                elif move.endCol == 0:  # Queen-side rook restored
-                    self.castlingRights[3] = True  # bQ
+
 
     def resetGame(self):
         """Reset the game to the original starting position"""
@@ -189,15 +193,47 @@ class GameState():
         self.moveLog = []
         # Restore all castling rights
         self.castlingRights = [True, True, True, True]
+        # Reset en passant
+        self.enPassantSquare = None
+        # Reset game state history
+        self.gameStateHistory = []
         # Reset game end state
         self.gameEnded = False
         self.winner = None
 
     def getValidMoves(self):
-        return self.getAllPossibleMoves()
+        """Get all valid moves that don't leave the king in check"""
+        moves = []
+        allPossibleMoves = self.getAllPossibleMoves()
+
+        # Store the current board state to verify integrity
+        originalEnPassantSquare = self.enPassantSquare
+
+        for move in allPossibleMoves:
+            # Make the move temporarily
+            self.makeMove(move)
+
+            # Check if this move leaves our king in check
+            # Switch back to check the previous player's king
+            self.whiteToMove = not self.whiteToMove
+            if not self.inCheck():
+                moves.append(move)
+
+            # Switch back and undo the move
+            self.whiteToMove = not self.whiteToMove
+            self.undoMove()
+
+        # Verify board integrity - en passant square should be restored
+        if self.enPassantSquare != originalEnPassantSquare:
+            # Restore the original en passant square if it was corrupted
+            self.enPassantSquare = originalEnPassantSquare
+
+        return moves
     
     def isValidMove(self, move):
-        for m in self.getAllPossibleMoves():
+        """Check if a move is valid (doesn't leave king in check)"""
+        validMoves = self.getValidMoves()
+        for m in validMoves:
             if (move.startRow == m.startRow and
                 move.startCol == m.startCol and
                 move.endRow == m.endRow and
@@ -246,6 +282,17 @@ class GameState():
                 target = self.board[nr][nc]
                 if target != "--" and target[0] != color:
                     moves.append(Move((r, c), (nr, nc), self.board))
+
+        # En passant captures
+        if self.enPassantSquare is not None:
+            enPassantRow, enPassantCol = self.enPassantSquare
+            # Check if this pawn can capture en passant
+            # The pawn must be on the correct rank (5th for white, 4th for black)
+            # and adjacent to the en passant square column
+            correctRank = 3 if color == "w" else 4  # 5th rank for white (index 3), 4th rank for black (index 4)
+            if r == correctRank and abs(c - enPassantCol) == 1:
+                # The pawn can capture en passant - move to the en passant square
+                moves.append(Move((r, c), (enPassantRow, enPassantCol), self.board, isEnPassantMove=True))
 
     def getRookMoves(self, r, c, moves):
         self._slide(r, c, moves, [(-1, 0), (1, 0), (0, -1), (0, 1)])
@@ -400,7 +447,7 @@ class Move():
     filesToCols = {"a": 0, "b": 1, "c": 2, "d": 3, "e": 4, "f": 5, "g": 6, "h": 7}
     colsToFiles = {v: k for k, v in filesToCols.items()}
 
-    def __init__(self, startSq, endSq, board, isCastleMove=False):
+    def __init__(self, startSq, endSq, board, isCastleMove=False, isEnPassantMove=False):
         self.startRow = startSq[0]
         self.startCol = startSq[1]
         self.endRow = endSq[0]
@@ -408,6 +455,13 @@ class Move():
         self.pieceMoved = board[startSq[0]][startSq[1]]
         self.pieceCaptured = board[endSq[0]][endSq[1]]
         self.isCastleMove = isCastleMove
+        self.isEnPassantMove = isEnPassantMove
+        # For en passant, we need to track the captured pawn separately
+        if isEnPassantMove:
+            # The captured pawn is on the same row as the moving pawn, not the destination square
+            capturedPawnRow = startSq[0]
+            capturedPawnCol = endSq[1]
+            self.pieceCaptured = board[capturedPawnRow][capturedPawnCol]
 
     def getChessNotation(self):
         if self.isCastleMove:
@@ -415,7 +469,11 @@ class Move():
                 return "O-O"  # King-side castle
             else:
                 return "O-O-O"  # Queen-side castle
-        return self.getRankFile(self.startRow, self.startCol) + self.getRankFile(self.endRow, self.endCol)
+
+        notation = self.getRankFile(self.startRow, self.startCol) + self.getRankFile(self.endRow, self.endCol)
+        if self.isEnPassantMove:
+            notation += " e.p."  # Add en passant indicator
+        return notation
          
     def getRankFile(self, r, c):
         return self.colsToFiles[c] + self.rowsToRanks[r]

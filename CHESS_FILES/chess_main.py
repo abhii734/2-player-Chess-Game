@@ -35,9 +35,50 @@ Initializing a global dictionary of images.This will be called exactly once in t
 """
 def loadImages():
     pieces = ["wp", "wR", "wN", "wB", "wQ", "wK", "bp", "bR", "bN", "bB", "bQ", "bK"]
+
+    # Try to load images, if not found create text-based pieces
     for piece in pieces:
-        IMAGES[piece] = P.transform.scale(P.image.load("images_chess/" + piece + ".png"), (SQ_SIZE, SQ_SIZE))
-    #note: we can access an image by saying IMAGES["wp"]
+        try:
+            IMAGES[piece] = P.transform.scale(P.image.load("images_chess/" + piece + ".png"), (SQ_SIZE, SQ_SIZE))
+        except FileNotFoundError:
+            # Create a text-based piece if image not found
+            IMAGES[piece] = createTextPiece(piece)
+
+    print("Images loaded successfully!")
+
+def createTextPiece(piece):
+    """Create a text-based piece surface when images are not available"""
+    surface = P.Surface((SQ_SIZE, SQ_SIZE))
+
+    # Set background color based on piece color
+    if piece[0] == 'w':  # White piece
+        surface.fill(P.Color(240, 240, 240))
+        text_color = P.Color(0, 0, 0)
+    else:  # Black piece
+        surface.fill(P.Color(60, 60, 60))
+        text_color = P.Color(255, 255, 255)
+
+    # Draw border
+    P.draw.rect(surface, P.Color(100, 100, 100), surface.get_rect(), 2)
+
+    # Get piece symbol
+    piece_symbols = {
+        'p': '♟', 'R': '♜', 'N': '♞', 'B': '♝', 'Q': '♛', 'K': '♚'
+    }
+
+    # Initialize font
+    P.font.init()
+    font = P.font.Font(None, int(SQ_SIZE * 0.7))
+
+    # Create text
+    symbol = piece_symbols.get(piece[1], piece[1])
+    text = font.render(symbol, True, text_color)
+
+    # Center the text
+    text_rect = text.get_rect(center=(SQ_SIZE//2, SQ_SIZE//2))
+    surface.blit(text, text_rect)
+
+    return surface
 
 def loadSounds():
     """Load sound effects for the game"""
@@ -185,29 +226,42 @@ def main():
                                 if move.startRow == row and move.startCol == col:
                                     validMovesForSelectedPiece.append(move)
                 if len(playerClicks) == 2: #after 2 clicks
-                    move = Move(playerClicks[0], playerClicks[1], gs.board)
-                    print(move.getChessNotation())
+                    # Create a temporary move to check against valid moves
+                    tempMove = Move(playerClicks[0], playerClicks[1], gs.board)
+                    print(tempMove.getChessNotation())
                     print(f"Start: {playerClicks[0]}, End: {playerClicks[1]}")
                     print(f"Piece: {gs.board[playerClicks[0][0]][playerClicks[0][1]]}")
                     validMoves = gs.getValidMoves()
                     print(f"Number of valid moves: {len(validMoves)}")
-                    is_valid_fn = getattr(gs, "isValidMove", None)
-                    if callable(is_valid_fn):
-                        if is_valid_fn(move):
-                            # Start animation instead of making move immediately
-                            animating = True
-                            animationMove = move
-                            animationProgress = 0.0
-                            # Direct animation - no path needed
-                            print("Valid move!")
-                        else:
-                            print("Invalid move!")
-                    else:
-                        # Start animation instead of making move immediately
+                    print(f"En passant square: {gs.enPassantSquare}")
+
+                    # Check for en passant moves specifically
+                    en_passant_moves = [m for m in validMoves if m.isEnPassantMove]
+                    if en_passant_moves:
+                        print(f"En passant moves available: {len(en_passant_moves)}")
+                        for ep_move in en_passant_moves:
+                            print(f"  {ep_move.getChessNotation()}")
+
+                    # Find the actual valid move that matches the player's input
+                    actualMove = None
+                    for validMove in validMoves:
+                        if (validMove.startRow == tempMove.startRow and
+                            validMove.startCol == tempMove.startCol and
+                            validMove.endRow == tempMove.endRow and
+                            validMove.endCol == tempMove.endCol):
+                            actualMove = validMove
+                            break
+
+                    if actualMove:
+                        # Start animation with the actual valid move (preserves castling flag)
                         animating = True
-                        animationMove = move
+                        animationMove = actualMove
                         animationProgress = 0.0
-                        # Direct animation - no path needed
+                        print("Valid move!")
+                        if actualMove.isCastleMove:
+                            print("Castling move detected!")
+                    else:
+                        print("Invalid move!")
                     sqSelected = ()
                     playerClicks = []
                     validMovesForSelectedPiece = [] #clear valid moves after move is made
@@ -249,17 +303,19 @@ def main():
                 animationProgress = 1.0
 
                 # Check if this move captures any piece before making the move
-                isCapture = animationMove.pieceCaptured != "--"
-                isKingCapture = animationMove.pieceCaptured[1] == "K" if isCapture else False
+                isCapture = animationMove.pieceCaptured != "--" or animationMove.isEnPassantMove
+                isKingCapture = animationMove.pieceCaptured[1] == "K" if animationMove.pieceCaptured != "--" else False
 
                 gs.makeMove(animationMove)
 
                 # Play appropriate sound based on move type
                 if isCapture and SOUNDS["capture"]:
-                    # Any piece captured - play capture sound (especially important for king)
+                    # Any piece captured (including en passant) - play capture sound
                     SOUNDS["capture"].play()
                     if isKingCapture:
                         print("King captured! Game ending sound played.")
+                    elif animationMove.isEnPassantMove:
+                        print("En passant capture!")
                 elif SOUNDS["move"]:
                     # Regular move - play move sound
                     SOUNDS["move"].play()
@@ -314,7 +370,7 @@ def drawPieces(screen, board, animating=False, animationMove=None, animationProg
         for c in range(dimensions):
             piece = board[r][c]
             if piece != "--":
-                # Check if this piece is being animated
+                # Check if this piece is being animated (king in castling or any other move)
                 if (animating and animationMove and
                     r == animationMove.startRow and c == animationMove.startCol):
 
@@ -333,6 +389,58 @@ def drawPieces(screen, board, animating=False, animationMove=None, animationProg
                     pixelX = round(currentX)
                     pixelY = round(currentY)
                     screen.blit(IMAGES[piece], P.Rect(pixelX, pixelY, SQ_SIZE, SQ_SIZE))
+
+                # Check if this is a pawn being captured by en passant (should be hidden during animation)
+                elif (animating and animationMove and animationMove.isEnPassantMove and
+                      r == animationMove.startRow and c == animationMove.endCol):
+                    # Don't draw the captured pawn during en passant animation
+                    continue
+
+                # Check if this is a rook being animated during castling
+                elif (animating and animationMove and animationMove.isCastleMove and
+                      piece[1] == "R" and piece[0] == animationMove.pieceMoved[0]):  # Same color rook
+
+                    # Determine rook movement based on castling direction
+                    if animationMove.endCol - animationMove.startCol == 2:  # King-side castle
+                        if c == 7 and r == animationMove.startRow:  # King-side rook position
+                            # Animate rook from h-file to f-file
+                            startX = float(7 * SQ_SIZE)
+                            startY = float(r * SQ_SIZE)
+                            endX = float(5 * SQ_SIZE)
+                            endY = float(r * SQ_SIZE)
+
+                            smoothProgress = easeInOutSine(animationProgress)
+                            currentX = startX + (endX - startX) * smoothProgress
+                            currentY = startY + (endY - startY) * smoothProgress
+
+                            pixelX = round(currentX)
+                            pixelY = round(currentY)
+                            screen.blit(IMAGES[piece], P.Rect(pixelX, pixelY, SQ_SIZE, SQ_SIZE))
+                        else:
+                            # Draw rook normally if it's not the castling rook
+                            screen.blit(IMAGES[piece], P.Rect(c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+
+                    elif animationMove.endCol - animationMove.startCol == -2:  # Queen-side castle
+                        if c == 0 and r == animationMove.startRow:  # Queen-side rook position
+                            # Animate rook from a-file to d-file
+                            startX = float(0 * SQ_SIZE)
+                            startY = float(r * SQ_SIZE)
+                            endX = float(3 * SQ_SIZE)
+                            endY = float(r * SQ_SIZE)
+
+                            smoothProgress = easeInOutSine(animationProgress)
+                            currentX = startX + (endX - startX) * smoothProgress
+                            currentY = startY + (endY - startY) * smoothProgress
+
+                            pixelX = round(currentX)
+                            pixelY = round(currentY)
+                            screen.blit(IMAGES[piece], P.Rect(pixelX, pixelY, SQ_SIZE, SQ_SIZE))
+                        else:
+                            # Draw rook normally if it's not the castling rook
+                            screen.blit(IMAGES[piece], P.Rect(c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+                    else:
+                        # Draw rook normally for non-castling moves
+                        screen.blit(IMAGES[piece], P.Rect(c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
                 else:
                     # Draw piece normally
                     screen.blit(IMAGES[piece], P.Rect(c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
