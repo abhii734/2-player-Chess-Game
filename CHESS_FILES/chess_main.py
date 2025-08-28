@@ -6,8 +6,9 @@ import os
 from chess_engine import GameState, Move
  
 board_width = board_height = 512
-panel_width = 320  # Increased width for better text visibility
-width = board_width + panel_width  # Total window width
+left_panel_width = 280  # Left panel for player names
+right_panel_width = 320  # Right panel for themes and controls
+width = left_panel_width + board_width + right_panel_width  # Total window width
 height = board_height
 dimensions = 8 #8x8 board
 SQ_SIZE = board_height // dimensions
@@ -186,6 +187,12 @@ def main():
     selectedThemeIndex = 0
     theme_names = list(COLOR_THEMES.keys())
     showControlsPopup = False
+
+    # Player name variables
+    whitePlayerName = ""
+    blackPlayerName = ""
+    inputActive = None  # None, "white", or "black"
+    showNameInput = True
     while running:
         for e in P.event.get():
             if e.type == P.QUIT:
@@ -194,20 +201,39 @@ def main():
             elif e.type == P.MOUSEBUTTONDOWN and not animating:  # Prevent input during animation
                 location = P.mouse.get_pos()#(x,y) location of mouse
 
-                # Check if click is in panel area
-                if location[0] >= board_width:  # Click is in panel area
+                # Check if click is in left panel (player names) or right panel (themes/controls)
+                if location[0] < left_panel_width:  # Click is in left panel (player names)
+                    # Player name input areas in left panel
+                    white_name_rect = P.Rect(20, 120, left_panel_width - 40, 40)
+                    black_name_rect = P.Rect(20, 200, left_panel_width - 40, 40)
+
+                    if white_name_rect.collidepoint(location):
+                        inputActive = "white"
+                    elif black_name_rect.collidepoint(location):
+                        inputActive = "black"
+                    else:
+                        inputActive = None  # Deactivate input if clicking elsewhere in left panel
+                    continue  # Don't process panel clicks as chess moves
+
+                elif location[0] >= left_panel_width + board_width:  # Click is in right panel (themes/controls)
+                    # Adjust coordinates for right panel
+                    right_panel_x = left_panel_width + board_width
                     # Controls button area
-                    controls_button_rect = P.Rect(board_width + 25, height - 50, 100, 30)
+                    controls_button_rect = P.Rect(right_panel_x + 25, height - 50, 100, 30)
                     if controls_button_rect.collidepoint(location):
                         showControlsPopup = not showControlsPopup
                     elif showControlsPopup:
                         # Check if click is outside popup to close it
-                        popup_rect = P.Rect(board_width + 30, height - 220, 260, 180)
+                        popup_rect = P.Rect(right_panel_x + 30, height - 220, 260, 180)
                         if not popup_rect.collidepoint(location):
                             showControlsPopup = False
+                    else:
+                        inputActive = None  # Deactivate input if clicking elsewhere
                     continue  # Don't process panel clicks as chess moves
 
-                col = location[0] // SQ_SIZE
+                # Adjust coordinates for the board offset by left panel
+                board_x = location[0] - left_panel_width
+                col = board_x // SQ_SIZE
                 row = location[1] // SQ_SIZE
                 if sqSelected == (row, col): #clicked same square twice
                     sqSelected = () #deselect
@@ -267,28 +293,47 @@ def main():
                     validMovesForSelectedPiece = [] #clear valid moves after move is made
                     #key handlers
             elif e.type == P.KEYDOWN and not animating:  # Prevent input during animation
-                if e.key == P.K_z: #undo move
-                    gs.undoMove()
-                    sqSelected = ()
-                    playerClicks = []
-                    validMovesForSelectedPiece = []
-                elif e.key == P.K_r:
-                    gs.resetGame()
-                    sqSelected = ()
-                    playerClicks = []
-                    validMovesForSelectedPiece = []
-                elif e.key == P.K_UP:  # Navigate up in color themes
-                    selectedThemeIndex = (selectedThemeIndex - 1) % len(theme_names)
-                elif e.key == P.K_DOWN:  # Navigate down in color themes
-                    selectedThemeIndex = (selectedThemeIndex + 1) % len(theme_names)
-                elif e.key == P.K_RETURN:  # Apply selected theme
-                    global current_theme, board_colors
-                    current_theme = theme_names[selectedThemeIndex]
-                    board_colors = COLOR_THEMES[current_theme]
-                elif e.key == P.K_ESCAPE:  # Close controls popup
-                    showControlsPopup = False
-                elif e.key == P.K_h:  # Toggle controls popup with H key
-                    showControlsPopup = not showControlsPopup
+                # Handle text input for player names
+                if inputActive:
+                    if e.key == P.K_RETURN or e.key == P.K_ESCAPE:
+                        inputActive = None  # Finish input
+                    elif e.key == P.K_BACKSPACE:
+                        if inputActive == "white" and len(whitePlayerName) > 0:
+                            whitePlayerName = whitePlayerName[:-1]
+                        elif inputActive == "black" and len(blackPlayerName) > 0:
+                            blackPlayerName = blackPlayerName[:-1]
+                    else:
+                        # Add character to name (limit to 15 characters)
+                        if e.unicode.isprintable() and len(e.unicode) == 1:
+                            if inputActive == "white" and len(whitePlayerName) < 15:
+                                whitePlayerName += e.unicode
+                            elif inputActive == "black" and len(blackPlayerName) < 15:
+                                blackPlayerName += e.unicode
+                else:
+                    # Regular game controls when not typing names
+                    if e.key == P.K_z: #undo move
+                        gs.undoMove()
+                        sqSelected = ()
+                        playerClicks = []
+                        validMovesForSelectedPiece = []
+                    elif e.key == P.K_r:
+                        gs.resetGame()
+                        sqSelected = ()
+                        playerClicks = []
+                        validMovesForSelectedPiece = []
+                    elif e.key == P.K_UP:  # Navigate up in color themes
+                        selectedThemeIndex = (selectedThemeIndex - 1) % len(theme_names)
+                    elif e.key == P.K_DOWN:  # Navigate down in color themes
+                        selectedThemeIndex = (selectedThemeIndex + 1) % len(theme_names)
+                    elif e.key == P.K_RETURN:  # Apply selected theme
+                        global current_theme, board_colors
+                        current_theme = theme_names[selectedThemeIndex]
+                        board_colors = COLOR_THEMES[current_theme]
+                    elif e.key == P.K_ESCAPE:  # Close controls popup
+                        showControlsPopup = False
+                        inputActive = None  # Also deactivate name input
+                    elif e.key == P.K_h:  # Toggle controls popup with H key
+                        showControlsPopup = not showControlsPopup
 
         # Handle animation with frame-time smoothing
         if animating:
@@ -308,6 +353,9 @@ def main():
 
                 gs.makeMove(animationMove)
 
+                # Check for checkmate/stalemate after the move
+                gs.getValidMoves()  # This will trigger checkmate detection
+
                 # Play appropriate sound based on move type
                 if isCapture and SOUNDS["capture"]:
                     # Any piece captured (including en passant) - play capture sound
@@ -322,26 +370,40 @@ def main():
 
                 # Check if game ended after the move
                 if gs.gameEnded:
-                    print(f"Game Over! {gs.winner} wins!")
+                    if gs.winner == "Stalemate":
+                        print("Game Over! Stalemate - Draw!")
+                    else:
+                        # Display winner with player name
+                        if gs.winner == "White":
+                            winning_player = whitePlayerName if whitePlayerName.strip() else "White Player"
+                        elif gs.winner == "Black":
+                            winning_player = blackPlayerName if blackPlayerName.strip() else "Black Player"
+                        else:
+                            winning_player = gs.winner
+                        print(f"Game Over! Checkmate - {winning_player} wins!")
                 animating = False
                 animationMove = None
 
-        drawGameState(screen, gs, sqSelected, validMovesForSelectedPiece, animating, animationMove, animationProgress, True, selectedThemeIndex, theme_names, showControlsPopup)
+        drawGameState(screen, gs, sqSelected, validMovesForSelectedPiece, animating, animationMove, animationProgress, True, selectedThemeIndex, theme_names, showControlsPopup, whitePlayerName, blackPlayerName, inputActive)
         clock.tick(MAX_FPS)
         P.display.flip()
 
-def drawGameState(screen, gs, sqSelected, validMoves, animating=False, animationMove=None, animationProgress=0.0, showColorPanel=False, selectedThemeIndex=0, theme_names=[], showControlsPopup=False):
-    drawBoard(screen)#draw squares on the board
-    drawHighlights(screen, sqSelected, validMoves)#add highlights to squares on the board
-    drawPieces(screen, gs.board, animating, animationMove, animationProgress)#draw pieces on the board
+def drawGameState(screen, gs, sqSelected, validMoves, animating=False, animationMove=None, animationProgress=0.0, showColorPanel=False, selectedThemeIndex=0, theme_names=[], showControlsPopup=False, whitePlayerName="", blackPlayerName="", inputActive=None):
+    # Draw left panel (player names)
+    drawLeftPanel(screen, whitePlayerName, blackPlayerName, inputActive, gs.whiteToMove)
 
-    # Draw color panel if active
+    # Draw chess board (offset by left panel)
+    drawBoard(screen)
+    drawHighlights(screen, sqSelected, validMoves)
+    drawPieces(screen, gs.board, animating, animationMove, animationProgress)
+
+    # Draw right panel (themes and controls)
     if showColorPanel:
-        drawColorPanel(screen, selectedThemeIndex, theme_names, showControlsPopup)
+        drawRightPanel(screen, selectedThemeIndex, theme_names, showControlsPopup)
 
     # Draw game end message if game is over
     if gs.gameEnded:
-        drawGameEndMessage(screen, gs.winner)
+        drawGameEndMessage(screen, gs.winner, whitePlayerName, blackPlayerName)
     
 def drawHighlights(screen, sqSelected, validMoves):
     """Draw highlights for selected square and valid moves"""
@@ -351,19 +413,22 @@ def drawHighlights(screen, sqSelected, validMoves):
         s = P.Surface((SQ_SIZE, SQ_SIZE))
         s.set_alpha(100)  # transparency value 0-255
         s.fill(P.Color('yellow'))
-        screen.blit(s, (col*SQ_SIZE, row*SQ_SIZE))
+        # Offset by left panel width
+        screen.blit(s, (left_panel_width + col*SQ_SIZE, row*SQ_SIZE))
 
         # Highlight valid move squares with green
         s.fill(P.Color('green'))
         for move in validMoves:
-            screen.blit(s, (move.endCol*SQ_SIZE, move.endRow*SQ_SIZE))
+            # Offset by left panel width
+            screen.blit(s, (left_panel_width + move.endCol*SQ_SIZE, move.endRow*SQ_SIZE))
 
 def drawBoard(screen):
     global board_colors
     for r in range(dimensions):
         for c in range(dimensions):
             color = board_colors[((r+c)%2)]
-            P.draw.rect(screen, color, P.Rect(c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+            # Offset board by left panel width
+            P.draw.rect(screen, color, P.Rect(left_panel_width + c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
 
 def drawPieces(screen, board, animating=False, animationMove=None, animationProgress=0.0):
     for r in range(dimensions):
@@ -374,10 +439,10 @@ def drawPieces(screen, board, animating=False, animationMove=None, animationProg
                 if (animating and animationMove and
                     r == animationMove.startRow and c == animationMove.startCol):
 
-                    # Direct interpolation from start to end position
-                    startX = float(animationMove.startCol * SQ_SIZE)
+                    # Direct interpolation from start to end position (offset by left panel)
+                    startX = float(left_panel_width + animationMove.startCol * SQ_SIZE)
                     startY = float(animationMove.startRow * SQ_SIZE)
-                    endX = float(animationMove.endCol * SQ_SIZE)
+                    endX = float(left_panel_width + animationMove.endCol * SQ_SIZE)
                     endY = float(animationMove.endRow * SQ_SIZE)
 
                     # Use the smoothest possible sine-based easing for perfect fluidity
@@ -403,10 +468,10 @@ def drawPieces(screen, board, animating=False, animationMove=None, animationProg
                     # Determine rook movement based on castling direction
                     if animationMove.endCol - animationMove.startCol == 2:  # King-side castle
                         if c == 7 and r == animationMove.startRow:  # King-side rook position
-                            # Animate rook from h-file to f-file
-                            startX = float(7 * SQ_SIZE)
+                            # Animate rook from h-file to f-file (offset by left panel)
+                            startX = float(left_panel_width + 7 * SQ_SIZE)
                             startY = float(r * SQ_SIZE)
-                            endX = float(5 * SQ_SIZE)
+                            endX = float(left_panel_width + 5 * SQ_SIZE)
                             endY = float(r * SQ_SIZE)
 
                             smoothProgress = easeInOutSine(animationProgress)
@@ -417,15 +482,15 @@ def drawPieces(screen, board, animating=False, animationMove=None, animationProg
                             pixelY = round(currentY)
                             screen.blit(IMAGES[piece], P.Rect(pixelX, pixelY, SQ_SIZE, SQ_SIZE))
                         else:
-                            # Draw rook normally if it's not the castling rook
-                            screen.blit(IMAGES[piece], P.Rect(c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+                            # Draw rook normally if it's not the castling rook (offset by left panel)
+                            screen.blit(IMAGES[piece], P.Rect(left_panel_width + c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
 
                     elif animationMove.endCol - animationMove.startCol == -2:  # Queen-side castle
                         if c == 0 and r == animationMove.startRow:  # Queen-side rook position
-                            # Animate rook from a-file to d-file
-                            startX = float(0 * SQ_SIZE)
+                            # Animate rook from a-file to d-file (offset by left panel)
+                            startX = float(left_panel_width + 0 * SQ_SIZE)
                             startY = float(r * SQ_SIZE)
-                            endX = float(3 * SQ_SIZE)
+                            endX = float(left_panel_width + 3 * SQ_SIZE)
                             endY = float(r * SQ_SIZE)
 
                             smoothProgress = easeInOutSine(animationProgress)
@@ -436,21 +501,180 @@ def drawPieces(screen, board, animating=False, animationMove=None, animationProg
                             pixelY = round(currentY)
                             screen.blit(IMAGES[piece], P.Rect(pixelX, pixelY, SQ_SIZE, SQ_SIZE))
                         else:
-                            # Draw rook normally if it's not the castling rook
-                            screen.blit(IMAGES[piece], P.Rect(c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+                            # Draw rook normally if it's not the castling rook (offset by left panel)
+                            screen.blit(IMAGES[piece], P.Rect(left_panel_width + c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
                     else:
-                        # Draw rook normally for non-castling moves
-                        screen.blit(IMAGES[piece], P.Rect(c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+                        # Draw rook normally for non-castling moves (offset by left panel)
+                        screen.blit(IMAGES[piece], P.Rect(left_panel_width + c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
                 else:
-                    # Draw piece normally
-                    screen.blit(IMAGES[piece], P.Rect(c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
+                    # Draw piece normally (offset by left panel)
+                    screen.blit(IMAGES[piece], P.Rect(left_panel_width + c*SQ_SIZE, r*SQ_SIZE, SQ_SIZE, SQ_SIZE))
 
-def drawColorPanel(screen, selectedThemeIndex, theme_names, showControlsPopup=False):
+def drawLeftPanel(screen, whitePlayerName="", blackPlayerName="", inputActive=None, whiteToMove=True):
+    """Draw the cool left panel with player names and game info"""
+    import math
+    import time
+
+    # Panel dimensions
+    panel_w = left_panel_width
+    panel_h = height
+
+    # Create gradient background
+    panel_surface = P.Surface((panel_w, panel_h))
+    for y in range(panel_h):
+        # Cool gradient from dark blue to darker blue
+        blue_value = 25 + int(y * 15 / panel_h)
+        color = P.Color(blue_value//3, blue_value//2, blue_value)
+        P.draw.line(panel_surface, color, (0, y), (panel_w, y))
+    screen.blit(panel_surface, (0, 0))
+
+    # Add some animated elements
+    current_time = time.time()
+
+    # Initialize fonts
+    P.font.init()
+    title_font = P.font.Font(None, 36)
+    player_font = P.font.Font(None, 28)
+    input_font = P.font.Font(None, 24)
+    small_font = P.font.Font(None, 20)
+
+    # Title with glow effect
+    title_y = 30
+    title_text = "CHESS PLAYERS"
+
+    # Draw title with glow effect
+    for offset in range(3, 0, -1):
+        glow_color = P.Color(50, 100, 200, 100 - offset * 30)
+        glow_surface = title_font.render(title_text, True, glow_color)
+        glow_rect = glow_surface.get_rect(center=(panel_w//2 + offset, title_y + offset))
+        screen.blit(glow_surface, glow_rect)
+
+    # Main title
+    title_surface = title_font.render(title_text, True, P.Color(255, 255, 255))
+    title_rect = title_surface.get_rect(center=(panel_w//2, title_y))
+    screen.blit(title_surface, title_rect)
+
+    # Animated underline
+    underline_y = title_y + 25
+    wave_offset = math.sin(current_time * 3) * 5
+    for i in range(panel_w - 40):
+        x = 20 + i
+        wave_y = underline_y + math.sin((i + current_time * 50) * 0.1) * 2
+        color_intensity = 150 + int(math.sin((i + current_time * 30) * 0.05) * 50)
+        P.draw.circle(screen, P.Color(color_intensity, color_intensity//2, 255), (int(x), int(wave_y)), 1)
+
+    # White Player Section
+    white_y = 90
+    white_label = player_font.render("WHITE PLAYER", True, P.Color(255, 255, 255))
+    screen.blit(white_label, (20, white_y))
+
+    # White player input box with cool styling
+    white_input_rect = P.Rect(20, white_y + 30, panel_w - 40, 40)
+
+    # Animated border for active input
+    if inputActive == "white":
+        # Pulsing border animation
+        pulse = math.sin(current_time * 8) * 0.3 + 0.7
+        border_color = P.Color(int(100 * pulse), int(200 * pulse), int(255 * pulse))
+        for i in range(3):
+            border_rect = P.Rect(white_input_rect.x - i, white_input_rect.y - i,
+                               white_input_rect.width + 2*i, white_input_rect.height + 2*i)
+            P.draw.rect(screen, border_color, border_rect, 1, border_radius=8)
+
+    # Input box background
+    input_bg_color = P.Color(40, 60, 100) if inputActive == "white" else P.Color(30, 45, 75)
+    P.draw.rect(screen, input_bg_color, white_input_rect, border_radius=8)
+    P.draw.rect(screen, P.Color(100, 150, 255), white_input_rect, 2, border_radius=8)
+
+    # Display white player name
+    display_name = whitePlayerName if whitePlayerName else "Click to enter name..."
+    name_color = P.Color(255, 255, 255) if whitePlayerName else P.Color(150, 150, 150)
+    white_name_surface = input_font.render(display_name, True, name_color)
+    screen.blit(white_name_surface, (white_input_rect.x + 15, white_input_rect.y + 10))
+
+
+
+    # Current turn indicator for white with animation
+    if whiteToMove:
+        turn_text = "◄ YOUR TURN"
+        turn_color = P.Color(100, 255, 100)
+        # Pulsing effect
+        pulse = math.sin(current_time * 4) * 0.2 + 0.8
+        turn_color = P.Color(int(100 * pulse), int(255 * pulse), int(100 * pulse))
+        turn_surface = small_font.render(turn_text, True, turn_color)
+        screen.blit(turn_surface, (25, white_y + 75))
+
+    # Black Player Section
+    black_y = 180
+    black_label = player_font.render("BLACK PLAYER", True, P.Color(200, 200, 200))
+    screen.blit(black_label, (20, black_y))
+
+    # Black player input box
+    black_input_rect = P.Rect(20, black_y + 30, panel_w - 40, 40)
+
+    # Animated border for active input
+    if inputActive == "black":
+        # Pulsing border animation
+        pulse = math.sin(current_time * 8) * 0.3 + 0.7
+        border_color = P.Color(int(255 * pulse), int(200 * pulse), int(100 * pulse))
+        for i in range(3):
+            border_rect = P.Rect(black_input_rect.x - i, black_input_rect.y - i,
+                               black_input_rect.width + 2*i, black_input_rect.height + 2*i)
+            P.draw.rect(screen, border_color, border_rect, 1, border_radius=8)
+
+    # Input box background
+    input_bg_color = P.Color(60, 40, 20) if inputActive == "black" else P.Color(45, 30, 15)
+    P.draw.rect(screen, input_bg_color, black_input_rect, border_radius=8)
+    P.draw.rect(screen, P.Color(200, 150, 100), black_input_rect, 2, border_radius=8)
+
+    # Display black player name
+    display_name = blackPlayerName if blackPlayerName else "Click to enter name..."
+    name_color = P.Color(255, 255, 255) if blackPlayerName else P.Color(150, 150, 150)
+    black_name_surface = input_font.render(display_name, True, name_color)
+    screen.blit(black_name_surface, (black_input_rect.x + 15, black_input_rect.y + 10))
+
+
+
+    # Current turn indicator for black with animation
+    if not whiteToMove:
+        turn_text = "◄ YOUR TURN"
+        # Pulsing effect
+        pulse = math.sin(current_time * 4) * 0.2 + 0.8
+        turn_color = P.Color(int(255 * pulse), int(200 * pulse), int(100 * pulse))
+        turn_surface = small_font.render(turn_text, True, turn_color)
+        screen.blit(turn_surface, (25, black_y + 75))
+
+    # Game info section
+    info_y = 300
+    info_title = player_font.render("GAME INFO", True, P.Color(200, 200, 255))
+    screen.blit(info_title, (20, info_y))
+
+    # Add some game statistics or tips
+    tips = [
+        "• Click piece to select",
+        "• Green squares = valid moves",
+        "• Yellow = selected piece",
+        "• Z = Undo move",
+        "• R = Reset game",
+        "• H = Help"
+    ]
+
+    for i, tip in enumerate(tips):
+        tip_surface = small_font.render(tip, True, P.Color(180, 180, 200))
+        screen.blit(tip_surface, (25, info_y + 30 + i * 20))
+
+    # Vertical separator line with glow
+    separator_x = panel_w - 1
+    for i in range(3):
+        line_color = P.Color(100 - i * 30, 150 - i * 40, 255 - i * 50)
+        P.draw.line(screen, line_color, (separator_x - i, 0), (separator_x - i, height), 1)
+
+def drawRightPanel(screen, selectedThemeIndex, theme_names, showControlsPopup=False):
     """Draw the clean color theme selection panel with minimized controls"""
     # Panel positioned right of the chess board
-    panel_x = board_width
+    panel_x = left_panel_width + board_width
     panel_y = 0
-    panel_w = panel_width
+    panel_w = right_panel_width
     panel_h = height
 
     # Clean background with subtle gradient effect
@@ -470,20 +694,20 @@ def drawColorPanel(screen, selectedThemeIndex, theme_names, showControlsPopup=Fa
     theme_font = P.font.Font(None, 24)
     control_font = P.font.Font(None, 20)
 
-    # Title section
-    title_y = 30
-    title_text = title_font.render("Board Themes", True, P.Color(220, 220, 220))
-    title_rect = title_text.get_rect(center=(panel_x + panel_w//2, title_y))
-    screen.blit(title_text, title_rect)
+    # Board Themes Section
+    themes_title_y = 30
+    themes_title = title_font.render("Board Themes", True, P.Color(220, 220, 220))
+    themes_title_rect = themes_title.get_rect(center=(panel_x + panel_w//2, themes_title_y))
+    screen.blit(themes_title, themes_title_rect)
 
-    # Underline for title
-    underline_y = title_y + 15
+    # Underline for themes section
+    themes_underline_y = themes_title_y + 15
     P.draw.line(screen, P.Color(100, 100, 100),
-                (panel_x + 20, underline_y), (panel_x + panel_w - 20, underline_y), 1)
+                (panel_x + 20, themes_underline_y), (panel_x + panel_w - 20, themes_underline_y), 1)
 
-    # Theme selection area - compact to fit controls
-    themes_start_y = 80
-    theme_height = 45  # Reduced height to make room for controls
+    # Theme selection area - more space now that player names are on left
+    themes_start_y = 70
+    theme_height = 45  # More height since we have more space
 
     for i, theme_name in enumerate(theme_names):
         y_pos = themes_start_y + i * theme_height
@@ -609,32 +833,75 @@ def drawControlsPopup(screen, panel_x):
     close_rect = close_text.get_rect(center=(popup_x + popup_width//2, popup_y + popup_height - 15))
     screen.blit(close_text, close_rect)
 
-def drawGameEndMessage(screen, winner):
-    """Draw game end message overlay"""
+
+
+def drawGameEndMessage(screen, winner, whitePlayerName="", blackPlayerName=""):
+    """Draw game end message overlay with player names"""
     # Create semi-transparent overlay only over the chess board
     overlay = P.Surface((board_width, board_height))
     overlay.set_alpha(180)  # Semi-transparent
     overlay.fill(P.Color('black'))
-    screen.blit(overlay, (0, 0))
+    # Position overlay over the chess board (offset by left panel)
+    screen.blit(overlay, (left_panel_width, 0))
 
     # Initialize font
     P.font.init()
     font = P.font.Font(None, 72)
     small_font = P.font.Font(None, 36)
 
-    # Create text surfaces
-    game_over_text = font.render("GAME OVER", True, P.Color('white'))
-    winner_text = font.render(f"{winner} Wins!", True, P.Color('yellow'))
+    # Create text surfaces based on game result
+    if winner == "Stalemate":
+        game_over_text = font.render("STALEMATE", True, P.Color('orange'))
+        winner_text = font.render("Game is a Draw!", True, P.Color('yellow'))
+    else:
+        game_over_text = font.render("CHECKMATE", True, P.Color('red'))
+
+        # Determine the winning player's name and create winner text
+        if winner == "White":
+            player_name = whitePlayerName if whitePlayerName.strip() else "White Player"
+            if whitePlayerName.strip():
+                winner_text = font.render(f"{player_name} Wins!", True, P.Color('yellow'))
+                color_text = small_font.render("(Playing as White)", True, P.Color('lightgray'))
+            else:
+                winner_text = font.render("White Wins!", True, P.Color('yellow'))
+                color_text = None
+        elif winner == "Black":
+            player_name = blackPlayerName if blackPlayerName.strip() else "Black Player"
+            if blackPlayerName.strip():
+                winner_text = font.render(f"{player_name} Wins!", True, P.Color('yellow'))
+                color_text = small_font.render("(Playing as Black)", True, P.Color('lightgray'))
+            else:
+                winner_text = font.render("Black Wins!", True, P.Color('yellow'))
+                color_text = None
+        else:
+            winner_text = font.render(f"{winner} Wins!", True, P.Color('yellow'))
+            color_text = None
+
     restart_text = small_font.render("Press R to restart", True, P.Color('white'))
 
-    # Center the text on the chess board area
-    game_over_rect = game_over_text.get_rect(center=(board_width//2, board_height//2 - 60))
-    winner_rect = winner_text.get_rect(center=(board_width//2, board_height//2))
-    restart_rect = restart_text.get_rect(center=(board_width//2, board_height//2 + 60))
+    # Center the text on the chess board area (accounting for left panel offset)
+    board_center_x = left_panel_width + board_width//2
+    board_center_y = board_height//2
+
+    # Adjust positioning based on whether we have color text
+    if winner != "Stalemate" and color_text:
+        game_over_rect = game_over_text.get_rect(center=(board_center_x, board_center_y - 80))
+        winner_rect = winner_text.get_rect(center=(board_center_x, board_center_y - 20))
+        color_rect = color_text.get_rect(center=(board_center_x, board_center_y + 10))
+        restart_rect = restart_text.get_rect(center=(board_center_x, board_center_y + 60))
+    else:
+        game_over_rect = game_over_text.get_rect(center=(board_center_x, board_center_y - 60))
+        winner_rect = winner_text.get_rect(center=(board_center_x, board_center_y))
+        restart_rect = restart_text.get_rect(center=(board_center_x, board_center_y + 60))
 
     # Draw the text
     screen.blit(game_over_text, game_over_rect)
     screen.blit(winner_text, winner_rect)
+
+    # Draw color text if it exists
+    if winner != "Stalemate" and color_text:
+        screen.blit(color_text, color_rect)
+
     screen.blit(restart_text, restart_rect)
 
 if __name__ == "__main__":

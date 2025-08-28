@@ -228,6 +228,19 @@ class GameState():
             # Restore the original en passant square if it was corrupted
             self.enPassantSquare = originalEnPassantSquare
 
+        # Check for checkmate or stalemate
+        if len(moves) == 0 and not self.gameEnded:
+            if self.inCheck():
+                # Checkmate: no legal moves and king is in check
+                self.gameEnded = True
+                self.winner = "Black" if self.whiteToMove else "White"  # Opponent wins
+                print(f"CHECKMATE! {self.winner} wins!")
+            else:
+                # Stalemate: no legal moves but king is not in check
+                self.gameEnded = True
+                self.winner = "Stalemate"
+                print("STALEMATE! Game is a draw!")
+
         return moves
     
     def isValidMove(self, move):
